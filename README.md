@@ -21,6 +21,8 @@ disk, you can point Claude / Cursor / any RAG pipeline at them.
   suffixes on collisions using a hash of the note id.
 - **Safe frontmatter** — titles with colons, quotes, or `#` won't break parsers
   (values are JSON-quoted, which is valid YAML).
+- **Attachments exported** — images, PDFs, audio etc. saved into a sibling
+  `<Note>.assets/` folder and linked at the bottom of the markdown.
 - **Config file** — save default folders + output dir so you can just type
   `notes-sync sync`.
 
@@ -37,6 +39,21 @@ uv tool install .
 ```
 
 Once installed, `notes-sync` is available on your PATH.
+
+### Run without installing
+
+From a clone of the repo, you can run the CLI without installing it globally:
+
+```bash
+# with uv — handles deps automatically, no venv setup needed
+uv run --with html2text python -m notes_sync list
+
+# or, if you already have html2text in your environment
+python -m notes_sync list
+```
+
+Every command shown below works with `python -m notes_sync ...` in place of
+`notes-sync ...`.
 
 ### First-run permissions
 
@@ -55,6 +72,7 @@ notes-sync info "Work"                   # metadata for a single folder
 notes-sync sync                          # sync all folders to cwd
 notes-sync sync -f "Work,Personal" -o ~/notes
 notes-sync sync --dry-run --prune        # preview changes incl. deletions
+notes-sync sync --no-attachments         # skip image/PDF export
 notes-sync watch -f "Work" --interval 30
 notes-sync config -f "Work,Personal" -o ~/notes
 ```
@@ -66,6 +84,9 @@ notes-sync config -f "Work,Personal" -o ~/notes
 ├── .notes-sync-state.json        # id → mtime map (do not edit by hand)
 ├── Work/
 │   ├── Meeting Notes.md
+│   ├── Meeting Notes.assets/    # attachments live alongside their note
+│   │   ├── 01-whiteboard.png
+│   │   └── 02-handout.pdf
 │   └── Q3 Plan.md
 └── Personal/
     └── Grocery List.md
@@ -83,7 +104,33 @@ modified: "2026-05-14T10:23:45.000Z"
 ---
 
 # meeting notes body as markdown...
+
+## Attachments
+
+- ![whiteboard.png](Meeting%20Notes.assets/01-whiteboard.png)
+- [handout.pdf](Meeting%20Notes.assets/02-handout.pdf)
 ```
+
+### Attachments
+
+Attachment export is **on by default**. For each note with attachments:
+
+- A sibling `<Note Title>.assets/` directory is created.
+- Files are named `NN-<original-name>` (`NN` = 1-based, two-digit index for
+  stable ordering across re-syncs). Unnamed attachments fall back to
+  `NN-attachment-<hash>.bin`.
+- A trailing `## Attachments` section in the markdown links each file — images
+  with `![]()`, everything else with `[]()`. URL-escaped so spaces work in
+  Obsidian and most renderers.
+- The `.assets/` folder is **owned by notes-sync** — it's wiped and rebuilt
+  whenever the note's body is refetched, so don't drop files there manually.
+- On `--prune`, the `.assets/` folder follows its `.md` into `.trash/`.
+- Some attachments (inline drawings, scans, link previews) can't be exported
+  via Apple's scripting bridge. They're counted and noted in the
+  `## Attachments` section but not saved.
+
+Opt out per-run with `--no-attachments`, or persist with
+`notes-sync config --no-attachments`.
 
 ### Config
 
@@ -142,8 +189,10 @@ not unit-tested — it requires a real macOS + Apple Notes install.
   currently flattens to top-level. (PRs welcome.)
 - **Multiple accounts merge.** If you have folders with the same name in
   different accounts (iCloud, On My Mac), they merge into one folder on disk.
-- **Attachments are dropped.** Inline images and PDFs in notes are stripped by
-  `html2text`. The text content survives.
+- **Some attachments can't be exported.** Inline drawings, scans, and link
+  previews aren't exposed as standalone files by Apple's scripting bridge.
+  They're counted and called out in the markdown but not saved. Regular images,
+  PDFs, audio, etc. export fine.
 - **Locked notes are skipped.** Password-protected notes can't be read via JXA.
   They show up in the "locked" count but aren't synced.
 

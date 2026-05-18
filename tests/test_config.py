@@ -7,6 +7,7 @@ from notes_sync.config import (
     load_config,
     resolve_folders,
     resolve_output_dir,
+    resolve_save_attachments,
     save_config,
 )
 
@@ -59,3 +60,17 @@ class TestResolveOutputDir:
     def test_default_is_cwd(self, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)
         assert resolve_output_dir(None, {}) == tmp_path.resolve()
+
+
+class TestResolveSaveAttachments:
+    def test_default_is_true(self):
+        assert resolve_save_attachments(False, {}) is True
+
+    def test_cli_no_attachments_wins(self):
+        assert resolve_save_attachments(True, {"save_attachments": True}) is False
+
+    def test_config_disabled_respected(self):
+        assert resolve_save_attachments(False, {"save_attachments": False}) is False
+
+    def test_config_enabled_explicit(self):
+        assert resolve_save_attachments(False, {"save_attachments": True}) is True

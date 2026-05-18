@@ -8,7 +8,14 @@ from datetime import datetime
 from pathlib import Path
 
 from . import __version__
-from .config import config_path, load_config, resolve_folders, resolve_output_dir, save_config
+from .config import (
+    config_path,
+    load_config,
+    resolve_folders,
+    resolve_output_dir,
+    resolve_save_attachments,
+    save_config,
+)
 from .jxa import JXAError, fetch_folder_meta, fetch_folders, folder_exists
 from .sync import sync_notes
 
@@ -83,12 +90,15 @@ def cmd_info(args: argparse.Namespace, _config: dict, _config_path: Path) -> int
 def cmd_sync(args: argparse.Namespace, config: dict, _config_path: Path) -> int:
     output_dir   = resolve_output_dir(args.output_dir, config)
     folder_names = resolve_folders(args.folders, config)
+    save_attachments = resolve_save_attachments(args.no_attachments, config)
 
     if folder_names:
         print(f"Syncing folders: {', '.join(folder_names)}")
     else:
         print("Syncing all folders")
     print(f"Output: {output_dir}")
+    if not save_attachments:
+        print("(attachments disabled)")
     if args.dry_run:
         print("(dry-run: no files will be written)")
     print()
@@ -99,6 +109,7 @@ def cmd_sync(args: argparse.Namespace, config: dict, _config_path: Path) -> int:
         dry_run=args.dry_run,
         prune=args.prune,
         verbose=not args.quiet,
+        save_attachments=save_attachments,
     )
 
     print(
@@ -107,6 +118,11 @@ def cmd_sync(args: argparse.Namespace, config: dict, _config_path: Path) -> int:
         f"Unchanged: {stats.skipped}, "
         f"Pruned: {stats.pruned}"
     )
+    if save_attachments and (stats.attachments_saved or stats.attachments_skipped):
+        msg = f"Attachments: {stats.attachments_saved} saved"
+        if stats.attachments_skipped:
+            msg += f", {stats.attachments_skipped} skipped (drawings/link previews)"
+        print(msg)
     if stats.locked:
         print(f"Note: {stats.locked} note(s) were locked or inaccessible.")
     if stats.errors:
@@ -122,11 +138,14 @@ def cmd_sync(args: argparse.Namespace, config: dict, _config_path: Path) -> int:
 def cmd_watch(args: argparse.Namespace, config: dict, _config_path: Path) -> int:
     output_dir   = resolve_output_dir(args.output_dir, config)
     folder_names = resolve_folders(args.folders, config)
+    save_attachments = resolve_save_attachments(args.no_attachments, config)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     desc = f"folders: {', '.join(folder_names)}" if folder_names else "all folders"
     print(f"Watching Apple Notes ({desc}), syncing every {args.interval}s")
     print(f"Output: {output_dir}")
+    if not save_attachments:
+        print("(attachments disabled)")
     print("Press Ctrl+C to stop.\n")
 
     try:
@@ -138,6 +157,7 @@ def cmd_watch(args: argparse.Namespace, config: dict, _config_path: Path) -> int
                     folder_names=folder_names,
                     prune=args.prune,
                     verbose=False,
+                    save_attachments=save_attachments,
                 )
                 if stats.has_changes:
                     print(
@@ -181,6 +201,15 @@ def cmd_config(args: argparse.Namespace, config: dict, cfg_path: Path) -> int:
         resolved = args.output_dir.expanduser().resolve()
         config["output_dir"] = str(resolved)
         print(f"Default output dir set: {resolved}")
+        changed = True
+
+    if args.no_attachments:
+        config["save_attachments"] = False
+        print("Attachments disabled by default.")
+        changed = True
+    elif args.attachments:
+        config.pop("save_attachments", None)  # back to default-on
+        print("Attachments enabled by default.")
         changed = True
 
     if changed:
@@ -232,6 +261,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Print what would change without writing files")
     sync_p.add_argument("--prune", action="store_true",
                         help="Move .md files for deleted notes into .trash/")
+    sync_p.add_argument("--no-attachments", action="store_true",
+                        help="Skip exporting note attachments to .assets/ folders")
     sync_p.set_defaults(func=cmd_sync)
 
     watch_p = sub.add_parser("watch", help="Continuously watch and sync notes")
@@ -241,6 +272,8 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Sync interval in seconds (default: 60)")
     watch_p.add_argument("--prune", action="store_true",
                          help="Also move deleted notes to .trash/ each tick")
+    watch_p.add_argument("--no-attachments", action="store_true",
+                         help="Skip exporting note attachments to .assets/ folders")
     watch_p.set_defaults(func=cmd_watch)
 
     cfg_p = sub.add_parser("config", help="View or set default configuration")
@@ -248,6 +281,11 @@ def build_parser() -> argparse.ArgumentParser:
                        help='Set default folders (comma-separated; pass "" to clear)')
     cfg_p.add_argument("-o", "--output-dir", type=Path, default=None,
                        help="Set default output directory")
+    att_group = cfg_p.add_mutually_exclusive_group()
+    att_group.add_argument("--no-attachments", action="store_true",
+                           help="Persist: skip exporting attachments by default")
+    att_group.add_argument("--attachments", action="store_true",
+                           help="Persist: export attachments by default (the default)")
     cfg_p.add_argument("--clear", action="store_true",
                        help="Remove the config file entirely")
     cfg_p.set_defaults(func=cmd_config)

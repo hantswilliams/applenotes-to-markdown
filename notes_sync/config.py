@@ -42,3 +42,10 @@ def resolve_output_dir(cli_output: Path | None, config: dict) -> Path:
     else:
         chosen = Path.cwd()
     return chosen.expanduser().resolve()
+
+
+def resolve_save_attachments(cli_no_attachments: bool, config: dict) -> bool:
+    """Default-on. CLI --no-attachments wins; otherwise honor config."""
+    if cli_no_attachments:
+        return False
+    return bool(config.get("save_attachments", True))

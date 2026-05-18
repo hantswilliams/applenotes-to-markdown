@@ -134,13 +134,18 @@ def fetch_notes_metadata(folder_names: list[str] | None) -> dict:
 
 
 def fetch_note_bodies(ids: list[str], progress_every: int = 25) -> dict:
-    """Fetch full HTML body for the given note ids.
+    """Fetch full HTML body + attachment listing for the given note ids.
 
-    Returns {"bodies": {id: body}, "missing": [id, ...], "locked": int}.
+    Returns {
+        "bodies": {id: body_html},
+        "attachments": {id: [{"att_id": str, "name": str | None}, ...]},
+        "missing": [id, ...],
+        "locked": int,
+    }.
     Streams a progress line to stderr every ``progress_every`` notes.
     """
     if not ids:
-        return {"bodies": {}, "missing": [], "locked": 0}
+        return {"bodies": {}, "attachments": {}, "missing": [], "locked": 0}
 
     ids_js = json.dumps(ids)
     progress_js = json.dumps(progress_every)
@@ -156,6 +161,7 @@ def fetch_note_bodies(ids: list[str], progress_every: int = 25) -> dict:
     }}
 
     const bodies = {{}};
+    const attachments = {{}};
     let count = 0;
     let locked = 0;
     for (const folder of app.folders()) {{
@@ -169,6 +175,16 @@ def fetch_note_bodies(ids: list[str], progress_every: int = 25) -> dict:
                 locked++;
                 continue;
             }}
+            const attList = [];
+            try {{
+                for (const a of note.attachments()) {{
+                    let aid; try {{ aid = a.id(); }} catch (e) {{ continue; }}
+                    let aname = null;
+                    try {{ aname = a.name(); }} catch (e) {{ aname = null; }}
+                    attList.push({{ att_id: aid, name: aname }});
+                }}
+            }} catch (e) {{ /* note has no accessible attachments */ }}
+            attachments[id] = attList;
             count++;
             if (progressEvery > 0 && count % progressEvery === 0) logProgress(count);
         }}
@@ -177,6 +193,64 @@ def fetch_note_bodies(ids: list[str], progress_every: int = 25) -> dict:
     for (const id of targetIds) {{
         if (!(id in bodies)) missing.push(id);
     }}
-    JSON.stringify({{ bodies: bodies, missing: missing, locked: locked }});
+    JSON.stringify({{
+        bodies: bodies,
+        attachments: attachments,
+        missing: missing,
+        locked: locked,
+    }});
+    """
+    return json.loads(_run_or_exit(jxa))
+
+
+def save_note_attachments(plan: dict[str, list[dict]]) -> dict:
+    """Write attachments to disk in a single JXA round-trip.
+
+    ``plan`` maps note_id -> [{"att_id": str, "dest": str (absolute path)}, ...].
+    Caller is responsible for creating parent directories beforehand.
+
+    Returns {att_id: {"ok": bool, "err": str | None}}. Attachments that error
+    on save (typically inline drawings / link previews that Apple Notes won't
+    export via JXA) come back with ok=False.
+    """
+    if not plan:
+        return {}
+
+    note_ids = list(plan.keys())
+    plan_js = json.dumps(plan)
+    note_ids_js = json.dumps(note_ids)
+    jxa = f"""
+    const app = Application("Notes");
+    const targetNoteIds = new Set({note_ids_js});
+    const plan = {plan_js};
+    const results = {{}};
+    for (const folder of app.folders()) {{
+        for (const note of folder.notes()) {{
+            let nid; try {{ nid = note.id(); }} catch (e) {{ continue; }}
+            if (!targetNoteIds.has(nid)) continue;
+            const wanted = {{}};
+            for (const entry of plan[nid]) {{ wanted[entry.att_id] = entry.dest; }}
+            for (const a of note.attachments()) {{
+                let aid; try {{ aid = a.id(); }} catch (e) {{ continue; }}
+                const dest = wanted[aid];
+                if (!dest) continue;
+                try {{
+                    a.save({{ in: Path(dest) }});
+                    results[aid] = {{ ok: true, err: null }};
+                }} catch (e) {{
+                    results[aid] = {{ ok: false, err: e.message }};
+                }}
+            }}
+        }}
+    }}
+    // Mark any planned attachments we never reached (note disappeared, etc.)
+    for (const nid of Object.keys(plan)) {{
+        for (const entry of plan[nid]) {{
+            if (!(entry.att_id in results)) {{
+                results[entry.att_id] = {{ ok: false, err: "attachment not found" }};
+            }}
+        }}
+    }}
+    JSON.stringify(results);
     """
     return json.loads(_run_or_exit(jxa))

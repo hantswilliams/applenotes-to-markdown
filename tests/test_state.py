@@ -69,3 +69,43 @@ class TestSyncStateLogic:
         assert rec is not None
         assert "id-1" not in state.notes
         assert state.remove("id-1") is None
+
+
+class TestAttachmentsField:
+    def test_default_empty_list(self):
+        rec = _rec()
+        assert rec.attachments == []
+
+    def test_round_trip_with_attachments(self, output_dir):
+        state = SyncState()
+        rec = NoteRecord(
+            path="Work/Foo.md", modified="2026-01-01T00:00:00.000Z",
+            name="Foo", folder="Work",
+            attachments=["Work/Foo.assets/01-pic.png", "Work/Foo.assets/02-doc.pdf"],
+        )
+        state.upsert("id-1", rec)
+        state.save(output_dir)
+
+        loaded = SyncState.load(output_dir)
+        assert loaded.notes["id-1"].attachments == [
+            "Work/Foo.assets/01-pic.png",
+            "Work/Foo.assets/02-doc.pdf",
+        ]
+
+    def test_legacy_state_without_attachments_field(self, output_dir):
+        """State files written before attachments existed must still load."""
+        legacy = {
+            "version": 1,
+            "notes": {
+                "id-1": {
+                    "path": "Work/Foo.md",
+                    "modified": "2026-01-01T00:00:00.000Z",
+                    "name": "Foo",
+                    "folder": "Work",
+                    # no "attachments" key
+                },
+            },
+        }
+        (output_dir / STATE_FILENAME).write_text(json.dumps(legacy))
+        loaded = SyncState.load(output_dir)
+        assert loaded.notes["id-1"].attachments == []

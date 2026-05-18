@@ -11,17 +11,30 @@ STATE_VERSION = 1
 
 @dataclass
 class NoteRecord:
-    path: str         # relative to output_dir
-    modified: str     # ISO8601 from JXA
+    path: str                          # relative to output_dir
+    modified: str                      # ISO8601 from JXA
     name: str
     folder: str
+    attachments: list[str] = field(default_factory=list)  # rel paths under output_dir
 
     def to_dict(self) -> dict:
-        return {"path": self.path, "modified": self.modified, "name": self.name, "folder": self.folder}
+        return {
+            "path": self.path,
+            "modified": self.modified,
+            "name": self.name,
+            "folder": self.folder,
+            "attachments": list(self.attachments),
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> "NoteRecord":
-        return cls(path=d["path"], modified=d["modified"], name=d["name"], folder=d["folder"])
+        return cls(
+            path=d["path"],
+            modified=d["modified"],
+            name=d["name"],
+            folder=d["folder"],
+            attachments=list(d.get("attachments", [])),
+        )
 
 
 @dataclass
