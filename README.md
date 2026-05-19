@@ -73,6 +73,7 @@ notes-sync sync                          # sync all folders to cwd
 notes-sync sync -f "Work,Personal" -o ~/notes
 notes-sync sync --dry-run --prune        # preview changes incl. deletions
 notes-sync sync --no-attachments         # skip image/PDF export
+notes-sync sync -f "Work" --force        # re-fetch every note in a folder
 notes-sync watch -f "Work" --interval 30
 notes-sync config -f "Work,Personal" -o ~/notes
 ```
@@ -163,6 +164,50 @@ Polls Apple Notes every 30s, syncs changes, and moves deleted notes to
 4. **Write + update state.**
 
 This makes `watch` cheap: on quiet ticks it costs one metadata JXA call.
+
+To bypass the diff and re-fetch every in-scope note (e.g. after editing the
+converter, or to regenerate a single folder), pass `--force`:
+
+```bash
+notes-sync sync -f "Work" --force        # re-sync just that folder
+notes-sync sync --force                  # re-sync everything
+```
+
+`--force` honours `-f` / `--folders`, so it's the supported way to regenerate a
+single folder without touching the rest of the state file.
+
+### Example: regenerate one folder, text-only
+
+Say you have an Apple Notes folder called **Fordham** and want to rebuild its
+Markdown from scratch — ignoring any prior sync state — and you don't want
+images or other attachments to come along:
+
+```bash
+notes-sync sync -f "Fordham" --force --no-attachments
+```
+
+What this does:
+
+- `-f "Fordham"` — restricts the sync to just the Fordham folder; other folders
+  in your state file are untouched.
+- `--force` — bypasses the `modified`-timestamp diff so every note in Fordham
+  is re-fetched and rewritten, even if its modification date hasn't changed.
+- `--no-attachments` — skips the attachment export entirely. No `.assets/`
+  folder is created and no `## Attachments` section is appended.
+
+Heads up: `--no-attachments` only controls the *current* run. If a previous
+sync of Fordham already created `<Note>.assets/` folders, those still exist on
+disk. Delete them manually if you want a fully attachment-free mirror:
+
+```bash
+rm -rf ~/notes/Fordham/*.assets
+```
+
+To persist the no-attachments default for future runs:
+
+```bash
+notes-sync config --no-attachments
+```
 
 ## Working with AI tools
 

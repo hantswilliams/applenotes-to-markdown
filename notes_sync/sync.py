@@ -127,15 +127,19 @@ def sync_notes(
     prune: bool = False,
     verbose: bool = True,
     save_attachments: bool = True,
+    force: bool = False,
 ) -> SyncStats:
     if not dry_run:
         output_dir.mkdir(parents=True, exist_ok=True)
     state = SyncState.load(output_dir)
     stats = SyncStats()
 
+    def is_unchanged(note_id: str, modified_iso: str) -> bool:
+        return not force and state.is_unchanged(note_id, modified_iso)
+
     if verbose:
         scope = f"in {len(folder_names)} folder(s)" if folder_names else "across all folders"
-        print(f"Scanning notes {scope}...")
+        print(f"Scanning notes {scope}{' (force re-sync)' if force else ''}...")
 
     meta = fetch_notes_metadata(folder_names)
     notes_meta: list[dict] = meta["notes"]
@@ -144,7 +148,7 @@ def sync_notes(
     live_ids: set[str] = {n["id"] for n in notes_meta}
     needs_body: list[str] = []
     for note in notes_meta:
-        if not state.is_unchanged(note["id"], note["modificationDate"]):
+        if not is_unchanged(note["id"], note["modificationDate"]):
             needs_body.append(note["id"])
 
     if verbose:
@@ -161,12 +165,21 @@ def sync_notes(
             if verbose:
                 print("(dry-run) would fetch bodies — skipping fetch")
         else:
-            body_result = fetch_note_bodies(needs_body)
+            if verbose:
+                print(
+                    f"Fetching bodies for {len(needs_body)} note(s) "
+                    f"(this is the slow step — Apple Notes can take a while)..."
+                )
+            # Aim for ~10 progress updates regardless of run size.
+            progress_every = max(1, len(needs_body) // 10)
+            body_result = fetch_note_bodies(needs_body, progress_every=progress_every)
             bodies = body_result["bodies"]
             note_attachments = body_result.get("attachments", {})
             stats.locked += body_result.get("locked", 0)
             for missing in body_result.get("missing", []):
                 stats.errors.append(f"body fetch failed for id {missing}")
+            if verbose:
+                print(f"Fetched {len(bodies)} bodies.")
 
     # ----- Plan attachment writes for changed notes -----
     # plan: note_id -> [{att_id, dest (abs path), filename, display}, ...]
@@ -176,7 +189,7 @@ def sync_notes(
 
     for note in notes_meta:
         note_id = note["id"]
-        if state.is_unchanged(note_id, note["modificationDate"]):
+        if is_unchanged(note_id, note["modificationDate"]):
             if (rec := state.notes.get(note_id)) is not None:
                 used_paths.add(output_dir / rec.path)
             continue
@@ -217,14 +230,19 @@ def sync_notes(
             nid: [{"att_id": e["att_id"], "dest": e["dest"]} for e in entries]
             for nid, entries in attachment_plan.items()
         }
+        total_atts = sum(len(v) for v in save_plan.values())
+        if verbose:
+            print(f"Exporting {total_atts} attachment(s) across {len(save_plan)} note(s)...")
         save_results = save_note_attachments(save_plan)
 
     # ----- Write markdown files -----
+    if verbose and needs_body and not dry_run:
+        print(f"Writing {len(needs_body)} markdown file(s)...")
     for note in notes_meta:
         note_id = note["id"]
         is_new = note_id not in state.notes
 
-        if state.is_unchanged(note_id, note["modificationDate"]):
+        if is_unchanged(note_id, note["modificationDate"]):
             stats.skipped += 1
             continue
 

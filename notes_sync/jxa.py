@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
 
 
 class JXAError(RuntimeError):
@@ -11,22 +12,44 @@ class JXAError(RuntimeError):
 
 
 def run_jxa(script: str) -> str:
-    """Run a JXA script via osascript and return stdout."""
-    result = subprocess.run(
+    """Run a JXA script via osascript and return stdout.
+
+    Stderr is streamed live to the caller's stderr (so scripts can emit
+    progress lines while running) and also collected for error reporting.
+    """
+    proc = subprocess.Popen(
         ["osascript", "-l", "JavaScript", "-e", script],
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
     )
-    if result.returncode != 0:
+    stderr_chunks: list[str] = []
+
+    def _drain_stderr() -> None:
+        assert proc.stderr is not None
+        for line in iter(proc.stderr.readline, ""):
+            stderr_chunks.append(line)
+            sys.stderr.write(line)
+            sys.stderr.flush()
+
+    t = threading.Thread(target=_drain_stderr, daemon=True)
+    t.start()
+    assert proc.stdout is not None
+    stdout = proc.stdout.read()
+    proc.wait()
+    t.join()
+
+    if proc.returncode != 0:
         msg = "Error accessing Apple Notes."
-        if result.stderr:
-            msg += f"\n{result.stderr.strip()}"
+        joined = "".join(stderr_chunks).strip()
+        if joined:
+            msg += f"\n{joined}"
         msg += (
             "\n\nEnsure your terminal has Notes access:"
             "\nSystem Settings > Privacy & Security > Automation"
         )
         raise JXAError(msg)
-    return result.stdout.strip()
+    return stdout.strip()
 
 
 def _run_or_exit(script: str) -> str:

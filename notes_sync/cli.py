@@ -110,6 +110,7 @@ def cmd_sync(args: argparse.Namespace, config: dict, _config_path: Path) -> int:
         prune=args.prune,
         verbose=not args.quiet,
         save_attachments=save_attachments,
+        force=args.force,
     )
 
     print(
@@ -263,6 +264,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Move .md files for deleted notes into .trash/")
     sync_p.add_argument("--no-attachments", action="store_true",
                         help="Skip exporting note attachments to .assets/ folders")
+    sync_p.add_argument("--force", action="store_true",
+                        help="Re-fetch and rewrite every in-scope note, ignoring saved state")
     sync_p.set_defaults(func=cmd_sync)
 
     watch_p = sub.add_parser("watch", help="Continuously watch and sync notes")
