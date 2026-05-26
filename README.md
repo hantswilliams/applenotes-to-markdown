@@ -1,5 +1,11 @@
 # notes-sync
 
+**TL;DR** — Mirror your Apple Notes to a folder of Markdown files on disk
+(macOS only). Install with `uv tool install .`, then run `notes-sync sync -f
+"My Folder" -o ~/notes` to pull a folder, or `notes-sync watch` to keep it
+synced continuously. Frontmatter, attachments, and incremental updates are
+handled for you, so the output drops cleanly into Claude/Cursor/RAG pipelines.
+
 Sync Apple Notes to plain Markdown files on disk — one folder per Notes folder,
 with YAML frontmatter, incremental updates, and a `watch` mode that keeps a
 local mirror up to date.
@@ -70,7 +76,7 @@ If you see "Error accessing Apple Notes" with no other context, that's usually i
 notes-sync list                          # list all folders + note counts
 notes-sync info "Work"                   # metadata for a single folder
 notes-sync sync                          # sync all folders to cwd
-notes-sync sync -f "Work,Personal" -o ~/notes
+notes-sync sync -f "Fordham" -o ~/notes
 notes-sync sync --dry-run --prune        # preview changes incl. deletions
 notes-sync sync --no-attachments         # skip image/PDF export
 notes-sync sync -f "Work" --force        # re-fetch every note in a folder
